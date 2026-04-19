@@ -73,7 +73,7 @@ export const StreamingAnswer = ({ blocks, cards }) => {
   );
 };
 
-const ThinkingBar = () => (
+export const ThinkingBar = () => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0 14px' }}>
     <div style={{ display: 'flex', gap: 3 }}>
       {[0,1,2,3,4].map(i => (
@@ -85,6 +85,25 @@ const ThinkingBar = () => (
     </span>
   </div>
 );
+
+export const StreamingText = ({ content, done }) => {
+  if (!content && !done) return <ThinkingBar />;
+  const paragraphs = (content || '').split('\n').filter(Boolean);
+  return (
+    <div>
+      {paragraphs.length === 0
+        ? <ThinkingBar />
+        : paragraphs.map((p, i) => (
+            <p key={i} style={{ margin: '0 0 14px', fontSize: 15, lineHeight: 1.62, color: 'var(--fg)' }}>
+              {p}{i === paragraphs.length - 1 && !done && <Caret />}
+            </p>
+          ))
+      }
+      {done && <AnswerFooter />}
+      {done && <VerificationStrip />}
+    </div>
+  );
+};
 
 const iconBtn = { width: 26, height: 26, display: 'grid', placeItems: 'center', color: 'var(--fg-faint)', border: '1px solid transparent', borderRadius: 2 };
 const ratingBtn = { ...iconBtn, fontSize: 13, filter: 'grayscale(1) opacity(.7)' };
@@ -141,20 +160,21 @@ export const AssistantTurn = ({ children }) => (
   </div>
 );
 
-export const Composer = ({ onSend }) => {
+export const Composer = ({ onSend, disabled }) => {
   const [val, setVal] = React.useState('');
+  const canSend = val.trim() && !disabled;
   return (
     <div style={{ borderTop: '1px solid var(--line)', background: 'var(--bg-deep)', padding: '14px 18px', position: 'sticky', bottom: 0 }}>
       <div style={{ maxWidth: 820, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--line)', background: 'var(--panel)', padding: '4px 4px 4px 14px' }}>
           <Icons.Sparks size={14} />
           <input value={val} onChange={e => setVal(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { onSend(val); setVal(''); } }}
+            onKeyDown={e => { if (e.key === 'Enter' && canSend) { onSend(val); setVal(''); } }}
             placeholder="Ask the desk — odds, props, arbitrage, Kalshi, Statcast…"
             style={{ flex: 1, background: 'transparent', border: 0, outline: 0, padding: '12px 4px', fontSize: 14, color: 'var(--fg)' }} />
           <button style={{ ...iconBtn, width: 30, height: 30 }}><Icons.Attach size={14}/></button>
           <button style={{ ...iconBtn, width: 30, height: 30 }}><Icons.Mic size={14}/></button>
-          <button onClick={() => { if (val.trim()) { onSend(val); setVal(''); } }} style={{ padding: '0 14px', height: 36, background: val.trim() ? 'var(--accent)' : 'var(--panel-hi)', color: val.trim() ? '#0b0b0b' : 'var(--fg-faint)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={() => { if (canSend) { onSend(val); setVal(''); } }} style={{ padding: '0 14px', height: 36, background: canSend ? 'var(--accent)' : 'var(--panel-hi)', color: canSend ? '#0b0b0b' : 'var(--fg-faint)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
             Send <Icons.Send size={12}/>
           </button>
         </div>
