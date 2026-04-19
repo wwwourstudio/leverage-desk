@@ -9,7 +9,7 @@ import { StreamingAnswer, FollowupChips, UserTurn, AssistantTurn, Composer, Stre
 import { Tweaks } from './tweaks.jsx';
 
 const TWEAK_DEFAULTS = {
-  theme: 'dark', density: 'default', layout: 'classic', accent: 'lime', stream: 'auto', view: 'chat'
+  theme: 'dark', density: 'default', layout: 'classic', accent: 'lime', stream: 'auto', view: 'welcome'
 };
 
 const ACCENT_MAP = {
