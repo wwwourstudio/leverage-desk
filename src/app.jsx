@@ -5,7 +5,7 @@ import { Tag, Ticker } from './primitives.jsx';
 import { Cards } from './cards.jsx';
 import { Sidebar } from './sidebar.jsx';
 import { Welcome } from './welcome.jsx';
-import { StreamingAnswer, FollowupChips, UserTurn, AssistantTurn, Composer } from './conversation.jsx';
+import { StreamingAnswer, FollowupChips, UserTurn, AssistantTurn, Composer, StreamingText } from './conversation.jsx';
 import { Tweaks } from './tweaks.jsx';
 
 const TWEAK_DEFAULTS = {
@@ -23,7 +23,8 @@ const App = () => {
   const [state, setState] = React.useState(TWEAK_DEFAULTS);
   const [activeChat, setActiveChat] = React.useState('c1');
   const [view, setView] = React.useState(TWEAK_DEFAULTS.view);
-  const [streamKey, setStreamKey] = React.useState(0);
+  const [messages, setMessages] = React.useState([]);
+  const [isStreaming, setIsStreaming] = React.useState(false);
   const scrollRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -38,10 +39,62 @@ const App = () => {
 
   React.useEffect(() => setView(state.view), [state.view]);
 
-  const ask = (q) => {
+  const ask = async (q) => {
     setView('chat');
-    setStreamKey(k => k + 1);
-    setTimeout(() => scrollRef.current?.scrollTo({ top: 0 }), 40);
+    const newMessages = [...messages, { role: 'user', content: q }];
+    setMessages([...newMessages, { role: 'assistant', content: '' }]);
+    setIsStreaming(true);
+    setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }), 40);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: newMessages }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: 'assistant', content: `[Error ${res.status}: ${errText}]` };
+          return updated;
+        });
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') break;
+          let parsed;
+          try { parsed = JSON.parse(data); } catch { continue; }
+          const token = parsed?.choices?.[0]?.delta?.content;
+          if (token) {
+            setMessages(prev => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: 'assistant',
+                content: updated[updated.length - 1].content + token,
+              };
+              return updated;
+            });
+          }
+        }
+      }
+    } finally {
+      setIsStreaming(false);
+    }
   };
 
   return (
@@ -54,12 +107,12 @@ const App = () => {
           {view === 'welcome'
             ? <Welcome data={DATA} onAsk={ask} />
             : (state.layout === 'split'
-                ? <SplitDesk streamKey={streamKey} streamDone={state.stream === 'done'} />
-                : <ChatView streamKey={streamKey} streamDone={state.stream === 'done'} />
+                ? <SplitDesk messages={messages} isStreaming={isStreaming} onAsk={ask} streamDone={state.stream === 'done'} />
+                : <ChatView messages={messages} isStreaming={isStreaming} onAsk={ask} />
               )
           }
         </div>
-        <Composer onSend={ask} />
+        <Composer onSend={ask} disabled={isStreaming} />
       </main>
       <Tweaks state={state} setState={setState} />
     </div>
@@ -97,61 +150,82 @@ const HeaderBtn = ({ icon, label }) => {
   );
 };
 
-const ChatView = ({ streamKey, streamDone }) => (
-  <div style={{ padding: '28px 56px 40px', maxWidth: 820, margin: '0 auto' }}>
-    <UserTurn text={DATA.SAMPLE_QUESTION} />
-    <AssistantTurn>
-      <div style={{ paddingLeft: 16 }}>
-        {streamDone
-          ? <InstantAnswer blocks={DATA.SAMPLE_ANSWER} cards={DATA.CARDS} />
-          : <StreamingAnswer key={streamKey} blocks={DATA.SAMPLE_ANSWER} cards={DATA.CARDS} />
-        }
-        <FollowupChips chips={DATA.FOLLOWUP_CHIPS} onPick={() => {}} />
-      </div>
-    </AssistantTurn>
-  </div>
-);
+const ChatView = ({ messages, isStreaming, onAsk }) => {
+  const bottomRef = React.useRef(null);
+  React.useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-const InstantAnswer = ({ blocks, cards }) => (
-  <div>
-    {blocks.map((b, i) => {
-      if (b.kind === 'kicker') return (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <span style={{ width: 18, height: 1, background: 'var(--accent)' }} />
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.22em', color: 'var(--accent)', textTransform: 'uppercase' }}>{b.text}</span>
+  if (messages.length === 0) return (
+    <div style={{ padding: '28px 56px 40px', maxWidth: 820, margin: '0 auto',
+      color: 'var(--fg-faint)', fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+      Ask the desk to get started.
+    </div>
+  );
+
+  const lastAssistantIdx = messages.map(m => m.role).lastIndexOf('assistant');
+
+  return (
+    <div style={{ padding: '28px 56px 40px', maxWidth: 820, margin: '0 auto' }}>
+      {messages.map((msg, i) => {
+        if (msg.role === 'user') return <UserTurn key={i} text={msg.content} />;
+        const isDone = !isStreaming || i < lastAssistantIdx;
+        return (
+          <AssistantTurn key={i}>
+            <div style={{ paddingLeft: 16 }}>
+              <StreamingText content={msg.content} done={isDone} />
+              {isDone && <FollowupChips chips={DATA.FOLLOWUP_CHIPS} onPick={onAsk} />}
+            </div>
+          </AssistantTurn>
+        );
+      })}
+      <div ref={bottomRef} />
+    </div>
+  );
+};
+
+const SplitDesk = ({ messages, isStreaming, onAsk, streamDone }) => {
+  const hasMessages = messages.length > 0;
+  const lastAssistantIdx = messages.map(m => m.role).lastIndexOf('assistant');
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', height: '100%' }}>
+      <div style={{ overflow: 'auto', borderRight: '1px solid var(--line-soft)' }}>
+        <div style={{ padding: '28px 36px 40px' }}>
+          {!hasMessages ? (
+            <>
+              <UserTurn text={DATA.SAMPLE_QUESTION} />
+              <AssistantTurn>
+                <div style={{ paddingLeft: 16 }}>
+                  {streamDone
+                    ? <SplitAnswer blocks={DATA.SAMPLE_ANSWER} />
+                    : <StreamingAnswer blocks={DATA.SAMPLE_ANSWER.filter(b => b.kind !== 'card')} cards={DATA.CARDS} />}
+                  <FollowupChips chips={DATA.FOLLOWUP_CHIPS} onPick={onAsk} />
+                </div>
+              </AssistantTurn>
+            </>
+          ) : (
+            messages.map((msg, i) => {
+              if (msg.role === 'user') return <UserTurn key={i} text={msg.content} />;
+              const isDone = !isStreaming || i < lastAssistantIdx;
+              return (
+                <AssistantTurn key={i}>
+                  <div style={{ paddingLeft: 16 }}>
+                    <StreamingText content={msg.content} done={isDone} />
+                    {isDone && <FollowupChips chips={DATA.FOLLOWUP_CHIPS} onPick={onAsk} />}
+                  </div>
+                </AssistantTurn>
+              );
+            })
+          )}
         </div>
-      );
-      if (b.kind === 'lede') return <p key={i} style={{ margin: '0 0 18px', fontFamily: 'var(--serif)', fontSize: 30, lineHeight: 1.2, color: 'var(--fg)' }}>{b.text}</p>;
-      if (b.kind === 'h') return <h3 key={i} style={{ margin: '28px 0 10px', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.22em', color: 'var(--fg-faint)', textTransform: 'uppercase', fontWeight: 600 }}>{b.text}</h3>;
-      if (b.kind === 'p') return <p key={i} style={{ margin: '0 0 14px', fontSize: 15, lineHeight: 1.62, color: 'var(--fg)' }}>{b.text}</p>;
-      if (b.kind === 'card') { const C = Cards[b.card]; return <C key={i} data={cards[b.card]} />; }
-      if (b.kind === 'callout') return <div key={i} style={{ margin: '18px 0 4px', padding: '18px 22px', borderLeft: '3px solid var(--accent)', background: 'var(--accent-dim)', fontFamily: 'var(--serif)', fontSize: 20, lineHeight: 1.3, color: 'var(--fg)' }}>{b.text}</div>;
-      return null;
-    })}
-  </div>
-);
-
-const SplitDesk = ({ streamKey, streamDone }) => (
-  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', height: '100%' }}>
-    <div style={{ overflow: 'auto', borderRight: '1px solid var(--line-soft)' }}>
-      <div style={{ padding: '28px 36px 40px' }}>
-        <UserTurn text={DATA.SAMPLE_QUESTION} />
-        <AssistantTurn>
-          <div style={{ paddingLeft: 16 }}>
-            {streamDone
-              ? <SplitAnswer blocks={DATA.SAMPLE_ANSWER} />
-              : <StreamingAnswer key={streamKey} blocks={DATA.SAMPLE_ANSWER.filter(b => b.kind !== 'card')} cards={DATA.CARDS} />}
-            <FollowupChips chips={DATA.FOLLOWUP_CHIPS} onPick={() => {}} />
-          </div>
-        </AssistantTurn>
+      </div>
+      <div style={{ overflow: 'auto', padding: '28px 28px 40px', background: 'var(--bg-deep)' }}>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.22em', color: 'var(--fg-faint)', textTransform: 'uppercase', marginBottom: 14 }}>Card canvas · 4 artifacts</div>
+        {['weather','pricing','line','arb','player','prop','kalshi'].map(k => { const C = Cards[k]; return <C key={k} data={DATA.CARDS[k]} />; })}
       </div>
     </div>
-    <div style={{ overflow: 'auto', padding: '28px 28px 40px', background: 'var(--bg-deep)' }}>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.22em', color: 'var(--fg-faint)', textTransform: 'uppercase', marginBottom: 14 }}>Card canvas · 4 artifacts</div>
-      {['weather','pricing','line','arb','player','prop','kalshi'].map(k => { const C = Cards[k]; return <C key={k} data={DATA.CARDS[k]} />; })}
-    </div>
-  </div>
-);
+  );
+};
 
 const SplitAnswer = ({ blocks }) => (
   <>{blocks.filter(b => b.kind !== 'card').map((b, i) => {
