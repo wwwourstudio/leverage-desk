@@ -30,14 +30,17 @@ async function fetchOdds(sport) {
   const key = process.env.ODDS_API_KEY;
   if (!key) return null;
   const url = `${ODDS_BASE}/sports/${sport}/odds/?apiKey=${key}&regions=us&markets=h2h,spreads,totals&oddsFormat=american&dateFormat=iso`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
   return res.ok ? res.json() : null;
 }
 
 async function fetchKalshi(apiPath) {
   const headers = kalshiHeaders('GET', apiPath);
   if (!headers) return null;
-  const res = await fetch(`${KALSHI_HOST}${KALSHI_PREFIX}${apiPath}`, { headers });
+  const res = await fetch(`${KALSHI_HOST}${KALSHI_PREFIX}${apiPath}`, {
+    headers,
+    signal: AbortSignal.timeout(6000),
+  });
   return res.ok ? res.json() : null;
 }
 
