@@ -9,30 +9,20 @@ function mulberry32(seed) {
   };
 }
 
-function gauss(rng) {
-  const u = 1 - rng(); const v = rng();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-
-function runMonteCarlo(N = 10000, seed = 424242) {
+function runMonteCarlo(N = 10000, seed = 424242, p = 0.608, pMkt = 0.569, odds = -132) {
   const rng = mulberry32(seed);
-  const p = 0.608;
-  const pMkt = 0.569;
-  const winPayout = 100 / 1.32;
+  const winPayout = odds < 0 ? 10000 / Math.abs(odds) : odds;
   const buckets = new Array(21).fill(0);
-  let winsNYY = 0;
-  let pnlTotal = 0;
+  let wins = 0, pnlTotal = 0;
   const path = [];
 
   for (let i = 0; i < N; i++) {
-    const nyyRuns = Math.max(0, Math.round(4.7 + gauss(rng) * 1.8));
-    const bosRuns = Math.max(0, Math.round(4.2 + gauss(rng) * 1.8));
-    const nyyWins = nyyRuns > bosRuns ? 1 : nyyRuns < bosRuns ? 0 : rng() < p ? 1 : 0;
-    winsNYY += nyyWins;
-    pnlTotal += nyyWins ? winPayout : -100;
-    if (i % 100 === 99) path.push({ i: i + 1, wr: winsNYY / (i + 1), ev: pnlTotal / (i + 1) });
+    const win = rng() < p ? 1 : 0;
+    wins += win;
+    pnlTotal += win ? winPayout : -100;
+    if (i % 100 === 99) path.push({ i: i + 1, wr: wins / (i + 1) });
     if (i >= 199 && i % 40 === 0) {
-      const localWR = winsNYY / (i + 1);
+      const localWR = wins / (i + 1);
       const jitter = (rng() - 0.5) * 0.14;
       const val = Math.max(0.40, Math.min(0.80, localWR + jitter));
       const idx = Math.round((val - 0.40) / 0.02);
@@ -40,10 +30,47 @@ function runMonteCarlo(N = 10000, seed = 424242) {
     }
   }
 
-  const finalWR = winsNYY / N;
+  const finalWR = wins / N;
   const evPer100 = pnlTotal / N;
   const stderr = Math.sqrt(finalWR * (1 - finalWR) / N);
-  return { N, p, pMkt, finalWR, evPer100, stderr, ci95: [finalWR - 1.96 * stderr, finalWR + 1.96 * stderr], buckets, path };
+  return { N, p, pMkt, odds, winPayout, finalWR, evPer100, stderr, ci95: [finalWR - 1.96 * stderr, finalWR + 1.96 * stderr], buckets, path };
+}
+
+// Parses an AI response for the first actionable bet: odds, team, model probability.
+function parseResponseForBet(text) {
+  if (!text) return null;
+
+  // Find all American odds tokens (-132, +115, etc.)
+  const oddsRe = /([+-]\d{3,4})/g;
+  const hits = [];
+  let m;
+  while ((m = oddsRe.exec(text)) !== null) {
+    const v = parseInt(m[1]);
+    if (Math.abs(v) >= 100 && Math.abs(v) <= 900) hits.push({ v, pos: m.index });
+  }
+  if (!hits.length) return null;
+
+  const { v: odds, pos } = hits[0];
+
+  // Market implied probability (vig not stripped — consistent with pMkt convention)
+  const pMkt = odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
+
+  // Team name: last Title-Case word(s) immediately before the odds token
+  const before = text.slice(Math.max(0, pos - 60), pos);
+  const teamMatch = before.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)[\s·:,\-–—]*$/);
+  const team = teamMatch ? teamMatch[1] : (odds < 0 ? 'Favorite' : 'Underdog');
+
+  // Model probability: first percentage (45–82%) within 300 chars of the odds
+  const ctx = text.slice(Math.max(0, pos - 300), Math.min(text.length, pos + 300));
+  const pctRe = /(\d{2,3}(?:\.\d{1,2})?)\s*%/g;
+  let pModel = null;
+  let pm;
+  while ((pm = pctRe.exec(ctx)) !== null) {
+    const pv = parseFloat(pm[1]) / 100;
+    if (pv >= 0.45 && pv <= 0.82) { pModel = pv; break; }
+  }
+
+  return { team, odds, pMkt, pModel };
 }
 
 function firstSig(x) {
@@ -118,22 +145,33 @@ const Stat = ({ label, value, sub, tone }) => (
   </div>
 );
 
-const MonteCarloPanel = () => {
-  const mc = React.useMemo(() => runMonteCarlo(10000), []);
+const MonteCarloPanel = ({ responseText }) => {
+  const parsed = React.useMemo(() => parseResponseForBet(responseText), [responseText]);
+  const isDemo = !parsed;
+  const team  = parsed?.team   ?? 'NYY';
+  const odds  = parsed?.odds   ?? -132;
+  const pMkt  = parsed?.pMkt   ?? 0.569;
+  // If the AI didn't state a probability, use pMkt (zero edge) — more honest than assuming edge
+  const p     = parsed?.pModel ?? pMkt;
+  // Vary the seed by odds so different bets produce visually distinct distributions
+  const seed  = 424242 + Math.abs(odds) * 17;
+
+  const mc = React.useMemo(() => runMonteCarlo(10000, seed, p, pMkt, odds), [seed, p, pMkt, odds]);
   const [progress, setProgress] = React.useState(0);
   const [hoverBucket, setHoverBucket] = React.useState(null);
 
   React.useEffect(() => {
+    setProgress(0);
     let raf, start;
     const step = (t) => {
       if (!start) start = t;
-      const p = Math.min(1, (t - start) / 1800);
-      setProgress(p);
-      if (p < 1) raf = requestAnimationFrame(step);
+      const prog = Math.min(1, (t - start) / 1800);
+      setProgress(prog);
+      if (prog < 1) raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [mc]);
 
   const W = 560, H = 140;
   const bucketMax = Math.max(...mc.buckets);
@@ -141,19 +179,28 @@ const MonteCarloPanel = () => {
   const runCount = Math.floor(mc.N * progress);
   const pathPts = mc.path.slice(0, Math.ceil(mc.path.length * progress));
   const pathW = 560, pathH = 70;
-  const xScale = i => (i / (mc.path.length - 1)) * pathW;
+  const xScale = i => (i / Math.max(1, mc.path.length - 1)) * pathW;
   const yScale = wr => pathH - ((wr - 0.45) / 0.25) * pathH;
+  const fmtOdds = odds > 0 ? `+${odds}` : `${odds}`;
+  // Kelly: f = p - (1-p)/b  where b = net fractional odds = winPayout/100
+  const b = mc.winPayout / 100;
+  const kellyQ = Math.max(0, (mc.finalWR - (1 - mc.finalWR) / b) * 25);
 
   return (
     <div style={{ padding: 20, border: '1px solid var(--line-soft)', background: 'var(--bg-deep)' }}>
       <SectionHead eyebrow="Verification · 01" title="Monte Carlo simulation" status={{ ok: true, label: `${runCount.toLocaleString()} / ${mc.N.toLocaleString()} runs` }} />
+      {isDemo && (
+        <div style={{ marginBottom: 12, fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em', color: 'var(--fg-faint)', textTransform: 'uppercase' }}>
+          Demo · no bet detected in response · showing NYY −132
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 18, marginBottom: 20 }}>
-        <Stat label="Model p(NYY)" value={(mc.finalWR * 100).toFixed(1) + '%'} sub={`±${(mc.stderr*196).toFixed(2)} pp · 95% CI`} tone="edge" />
-        <Stat label="Market p(NYY)" value={(mc.pMkt * 100).toFixed(1) + '%'} sub="Implied from −132" />
+        <Stat label={`Model p(${team})`} value={(mc.finalWR * 100).toFixed(1) + '%'} sub={`±${(mc.stderr*196).toFixed(2)} pp · 95% CI`} tone="edge" />
+        <Stat label={`Market p(${team})`} value={(mc.pMkt * 100).toFixed(1) + '%'} sub={`Implied from ${fmtOdds}`} />
         <Stat label="EV / $100" value={(mc.evPer100 >= 0 ? '+' : '') + '$' + mc.evPer100.toFixed(2)} sub="After juice" tone={mc.evPer100 > 0 ? 'edge' : 'warn'} />
-        <Stat label="Kelly ¼" value={((mc.finalWR - (1 - mc.finalWR) * 1.32) * 25).toFixed(1) + '%'} sub="Of bankroll" />
+        <Stat label="Kelly ¼" value={kellyQ.toFixed(1) + '%'} sub="Of bankroll" />
       </div>
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em', color: 'var(--fg-faint)', textTransform: 'uppercase', marginBottom: 8 }}>Distribution of simulated NYY win-rate · 40% → 80%</div>
+      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em', color: 'var(--fg-faint)', textTransform: 'uppercase', marginBottom: 8 }}>Distribution of simulated {team} win-rate · 40% → 80%</div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
         <defs>
           <linearGradient id="mc-grad" x1="0" x2="0" y1="0" y2="1">
@@ -193,15 +240,17 @@ const MonteCarloPanel = () => {
         ))}
         <line x1={0} x2={pathW} y1={yScale(mc.pMkt)} y2={yScale(mc.pMkt)} stroke="var(--fade)" strokeDasharray="3 3" strokeWidth="1" opacity="0.7" />
         {pathPts.length > 1 && (
-          <path d={pathPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(p.wr)}`).join(' ')} fill="none" stroke="var(--accent)" strokeWidth="1.4" />
+          <path d={pathPts.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(pt.wr)}`).join(' ')} fill="none" stroke="var(--accent)" strokeWidth="1.4" />
         )}
         {pathPts.length > 0 && (
           <circle cx={xScale(pathPts.length - 1)} cy={yScale(pathPts[pathPts.length - 1].wr)} r="3" fill="var(--accent)" />
         )}
       </svg>
       <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-mute)', borderTop: '1px dashed var(--line-soft)', paddingTop: 10 }}>
-        <span>Seed 424242 · {mc.N.toLocaleString()} trials · Poisson-Gauss · reproducible</span>
-        <span style={{ color: 'var(--accent)' }}>Edge vs market +{((mc.finalWR - mc.pMkt) * 100).toFixed(1)}pp</span>
+        <span>Seed {seed} · {mc.N.toLocaleString()} trials · Bernoulli · reproducible</span>
+        <span style={{ color: mc.finalWR >= mc.pMkt ? 'var(--accent)' : 'var(--fade)' }}>
+          Edge vs market {mc.finalWR >= mc.pMkt ? '+' : ''}{((mc.finalWR - mc.pMkt) * 100).toFixed(1)}pp
+        </span>
       </div>
     </div>
   );
@@ -299,7 +348,7 @@ export const VerificationStrip = ({ data, responseText }) => {
       </div>
       {open && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
-          <MonteCarloPanel />
+          <MonteCarloPanel responseText={responseText} />
           <BenfordPanel data={data} responseText={responseText} />
         </div>
       )}
