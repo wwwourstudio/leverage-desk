@@ -25,7 +25,12 @@ const App = () => {
   const [view, setView] = React.useState(TWEAK_DEFAULTS.view);
   const [messages, setMessages] = React.useState([]);
   const [isStreaming, setIsStreaming] = React.useState(false);
+  const [liveData, setLiveData] = React.useState(null);
   const scrollRef = React.useRef(null);
+
+  React.useEffect(() => {
+    fetch('/api/data').then(r => r.ok ? r.json() : null).then(d => { if (d) setLiveData(d); }).catch(() => {});
+  }, []);
 
   React.useEffect(() => {
     const r = document.documentElement;
@@ -50,7 +55,7 @@ const App = () => {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, liveData }),
       });
 
       if (!res.ok) {
