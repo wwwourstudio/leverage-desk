@@ -79,7 +79,7 @@ function benfordCheck(values) {
   return { obs, exp, counts, total, chi2, mad, verdict };
 }
 
-function harvestNumbers(DATA) {
+function harvestNumbers(DATA, text) {
   const out = [];
   const push = (v) => { if (typeof v === 'number' && v !== 0 && isFinite(v)) out.push(v); };
   const pushStr = (s) => { if (typeof s !== 'string') return; const m = s.match(/-?\d+(?:\.\d+)?/g); if (m) m.forEach(x => push(parseFloat(x))); };
@@ -91,6 +91,7 @@ function harvestNumbers(DATA) {
     else if (typeof x === 'object') Object.values(x).forEach(walk);
   };
   if (DATA) { walk(DATA.CARDS); walk(DATA.PULSE); }
+  if (text) pushStr(text);
   return out;
 }
 
@@ -150,7 +151,7 @@ const MonteCarloPanel = () => {
         <Stat label="Model p(NYY)" value={(mc.finalWR * 100).toFixed(1) + '%'} sub={`±${(mc.stderr*196).toFixed(2)} pp · 95% CI`} tone="edge" />
         <Stat label="Market p(NYY)" value={(mc.pMkt * 100).toFixed(1) + '%'} sub="Implied from −132" />
         <Stat label="EV / $100" value={(mc.evPer100 >= 0 ? '+' : '') + '$' + mc.evPer100.toFixed(2)} sub="After juice" tone={mc.evPer100 > 0 ? 'edge' : 'warn'} />
-        <Stat label="Kelly ¼" value={(((mc.finalWR - mc.pMkt) / (1/1.32)) * 25).toFixed(1) + '%'} sub="Of bankroll" />
+        <Stat label="Kelly ¼" value={((mc.finalWR - (1 - mc.finalWR) * 1.32) * 25).toFixed(1) + '%'} sub="Of bankroll" />
       </div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em', color: 'var(--fg-faint)', textTransform: 'uppercase', marginBottom: 8 }}>Distribution of simulated NYY win-rate · 40% → 80%</div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
@@ -206,8 +207,8 @@ const MonteCarloPanel = () => {
   );
 };
 
-const BenfordPanel = ({ data }) => {
-  const nums = React.useMemo(() => harvestNumbers(data), [data]);
+const BenfordPanel = ({ data, responseText }) => {
+  const nums = React.useMemo(() => harvestNumbers(data, responseText), [data, responseText]);
   const b = React.useMemo(() => benfordCheck(nums), [nums]);
   const [progress, setProgress] = React.useState(0);
 
@@ -280,7 +281,7 @@ const BenfordPanel = ({ data }) => {
   );
 };
 
-export const VerificationStrip = ({ data }) => {
+export const VerificationStrip = ({ data, responseText }) => {
   const [open, setOpen] = React.useState(true);
   return (
     <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--line)' }}>
@@ -299,7 +300,7 @@ export const VerificationStrip = ({ data }) => {
       {open && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
           <MonteCarloPanel />
-          <BenfordPanel data={data} />
+          <BenfordPanel data={data} responseText={responseText} />
         </div>
       )}
     </div>
