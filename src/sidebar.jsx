@@ -7,7 +7,19 @@ const collapsedBtn = {
   color: 'var(--fg-mute)', border: '1px solid transparent'
 };
 
-export const Sidebar = ({ chats, activeId, onSelect, onNew, collapsed }) => {
+function relativeTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'yest';
+  return `${d}d`;
+}
+
+export const Sidebar = ({ chats, activeId, onSelect, onNew, collapsed, user, onOpenAccount }) => {
   if (collapsed) {
     return (
       <aside style={{ width: 56, borderRight: '1px solid var(--line-soft)', background: 'var(--bg-deep)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: 10 }}>
@@ -18,6 +30,12 @@ export const Sidebar = ({ chats, activeId, onSelect, onNew, collapsed }) => {
       </aside>
     );
   }
+
+  const initial = user
+    ? (user.user_metadata?.name?.[0] ?? user.email[0]).toUpperCase()
+    : '?';
+  const displayName = user ? (user.user_metadata?.name ?? user.email) : 'Sign in';
+
   return (
     <aside style={{ width: 260, borderRight: '1px solid var(--line-soft)', background: 'var(--bg-deep)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
       <div style={{ padding: '16px 18px 14px', borderBottom: '1px solid var(--line-soft)' }}>
@@ -36,25 +54,36 @@ export const Sidebar = ({ chats, activeId, onSelect, onNew, collapsed }) => {
         <div style={{ flex: 1, height: 1, background: 'var(--line-soft)' }} />
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: '4px 8px' }}>
+        {chats.length === 0 && (
+          <div style={{ padding: '20px 10px', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--fg-faint)', textTransform: 'uppercase' }}>
+            No conversations yet
+          </div>
+        )}
         {chats.map(c => (
           <button key={c.id} onClick={() => onSelect(c.id)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 10px', borderLeft: `2px solid ${c.id === activeId ? 'var(--accent)' : 'transparent'}`, background: c.id === activeId ? 'var(--panel)' : 'transparent', marginBottom: 1, transition: 'background .12s ease' }}
             onMouseEnter={e => { if (c.id !== activeId) e.currentTarget.style.background = 'var(--panel)' }}
             onMouseLeave={e => { if (c.id !== activeId) e.currentTarget.style.background = 'transparent' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
               <span style={{ fontSize: 13, color: c.id === activeId ? 'var(--fg)' : 'var(--fg-mute)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{c.title}</span>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-faint)' }}>{c.time}</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-faint)', flexShrink: 0 }}>
+                {c.updated_at ? relativeTime(c.updated_at) : c.time}
+              </span>
             </div>
             {c.pinned && <div style={{ marginTop: 3 }}><Tag kind="ghost" style={{ fontSize: 8 }}>pinned</Tag></div>}
           </button>
         ))}
       </div>
       <div style={{ borderTop: '1px solid var(--line-soft)', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 2, background: 'var(--accent)', color: '#111', display: 'grid', placeItems: 'center', fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 12 }}>AM</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, color: 'var(--fg)' }}>Al Michaels</div>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-faint)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Pro · 149/mo</div>
+        <div style={{ width: 28, height: 28, borderRadius: 2, background: 'var(--accent)', color: '#0b0b0b', display: 'grid', placeItems: 'center', fontFamily: 'var(--mono)', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+          {initial}
         </div>
-        <Icons.Settings size={14}/>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+          {user && <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.12em', textTransform: 'uppercase', marginTop: 1 }}>Pro · $149/mo</div>}
+        </div>
+        <button onClick={onOpenAccount} style={{ color: 'var(--fg-faint)', flexShrink: 0, padding: 4 }} title="Account settings">
+          <Icons.Settings size={14}/>
+        </button>
       </div>
     </aside>
   );
