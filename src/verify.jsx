@@ -151,7 +151,7 @@ const MonteCarloPanel = () => {
         <Stat label="Model p(NYY)" value={(mc.finalWR * 100).toFixed(1) + '%'} sub={`±${(mc.stderr*196).toFixed(2)} pp · 95% CI`} tone="edge" />
         <Stat label="Market p(NYY)" value={(mc.pMkt * 100).toFixed(1) + '%'} sub="Implied from −132" />
         <Stat label="EV / $100" value={(mc.evPer100 >= 0 ? '+' : '') + '$' + mc.evPer100.toFixed(2)} sub="After juice" tone={mc.evPer100 > 0 ? 'edge' : 'warn'} />
-        <Stat label="Kelly ¼" value={(((mc.finalWR - mc.pMkt) / (1/1.32)) * 25).toFixed(1) + '%'} sub="Of bankroll" />
+        <Stat label="Kelly ¼" value={((mc.finalWR - (1 - mc.finalWR) * 1.32) * 25).toFixed(1) + '%'} sub="Of bankroll" />
       </div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.18em', color: 'var(--fg-faint)', textTransform: 'uppercase', marginBottom: 8 }}>Distribution of simulated NYY win-rate · 40% → 80%</div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
