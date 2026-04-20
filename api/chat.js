@@ -1,5 +1,13 @@
 export const config = { runtime: 'edge' };
 
+const AI_BASE = process.env.XAI_API_KEY
+  ? 'https://api.x.ai/v1'
+  : 'https://api.groq.com/openai/v1';
+
+const AI_KEY = process.env.XAI_API_KEY || process.env.GROQ_API_KEY;
+
+const AI_MODEL = process.env.XAI_API_KEY ? 'grok-3-mini' : 'llama-3.3-70b-versatile';
+
 const SYSTEM = `You are Leverage, an expert AI analyst for a sports betting and financial market intelligence desk. You specialize in MLB/NBA/NHL/UFC betting lines, sharp money signals, arbitrage windows, player props, Statcast data, and Kalshi prediction markets. Write with concise, authoritative market-desk cadence. Surface the edge, explain the why, give a bottom-line recommendation.`;
 
 function formatLiveData(data) {
@@ -49,14 +57,14 @@ export default async function handler(req) {
   const { messages, liveData } = await req.json();
   const systemContent = SYSTEM + formatLiveData(liveData);
 
-  const xaiRes = await fetch('https://api.x.ai/v1/chat/completions', {
+  const xaiRes = await fetch(`${AI_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
+      'Authorization': `Bearer ${AI_KEY}`,
     },
     body: JSON.stringify({
-      model: 'grok-3-mini',
+      model: AI_MODEL,
       stream: true,
       messages: [{ role: 'system', content: systemContent }, ...messages],
     }),
