@@ -56,13 +56,17 @@ export default async function handler(req) {
       'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'grok-3',
+      model: 'grok-3-mini',
       stream: true,
       messages: [{ role: 'system', content: systemContent }, ...messages],
     }),
   });
 
-  if (!xaiRes.ok) return new Response(await xaiRes.text(), { status: xaiRes.status });
+  if (!xaiRes.ok) {
+    const errText = await xaiRes.text();
+    console.error('xAI error', xaiRes.status, errText);
+    return new Response(errText, { status: xaiRes.status });
+  }
 
   return new Response(xaiRes.body, {
     headers: {
