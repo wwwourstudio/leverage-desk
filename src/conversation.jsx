@@ -179,7 +179,7 @@ export const Composer = ({ onSend, disabled }) => {
           </button>
         </div>
         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--fg-faint)', textTransform: 'uppercase' }}>
-          <span>Grok 3 Mini · tool-routed · 11 data sources</span>
+          <span>AI · tool-routed · 11 data sources</span>
           <span>↵ send · ⇧↵ newline · ⌘K new</span>
         </div>
       </div>
