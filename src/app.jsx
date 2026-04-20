@@ -9,6 +9,7 @@ import { StreamingAnswer, FollowupChips, UserTurn, AssistantTurn, Composer, Stre
 import { Tweaks } from './tweaks.jsx';
 import { supabase } from './supabase.js';
 import { AccountLightbox } from './auth.jsx';
+import { PricingLightbox } from './pricing.jsx';
 
 const TWEAK_DEFAULTS = {
   theme: 'dark', density: 'default', layout: 'classic', accent: 'lime', stream: 'auto', view: 'welcome'
@@ -28,9 +29,11 @@ const App = () => {
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [liveData, setLiveData] = React.useState(null);
   const [user, setUser] = React.useState(null);
+  const [profile, setProfile] = React.useState(null);
   const [conversations, setConversations] = React.useState([]);
   const [activeConvId, setActiveConvId] = React.useState(null);
   const [accountOpen, setAccountOpen] = React.useState(false);
+  const [pricingOpen, setPricingOpen] = React.useState(false);
   const scrollRef = React.useRef(null);
 
   // Fetch live market data once on mount
@@ -62,14 +65,31 @@ const App = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load conversations when user logs in/out
+  // Detect Stripe checkout return and reload profile
   React.useEffect(() => {
-    if (!user) { setConversations([]); setActiveConvId(null); setMessages([]); return; }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('checkout') === 'success') {
+      window.history.replaceState({}, '', window.location.pathname);
+      // Wait briefly for webhook to update Supabase, then reload profile
+      setTimeout(() => {
+        supabase.auth.getUser().then(({ data: { user: u } }) => {
+          if (u) supabase.from('profiles').select('*').eq('id', u.id).single()
+            .then(({ data }) => { if (data) setProfile(data); });
+        });
+      }, 2500);
+    }
+  }, []);
+
+  // Load conversations + profile when user logs in/out
+  React.useEffect(() => {
+    if (!user) { setConversations([]); setActiveConvId(null); setMessages([]); setProfile(null); return; }
     supabase.from('conversations')
       .select('id, title, pinned, updated_at')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
       .then(({ data }) => { if (data) setConversations(data); });
+    supabase.from('profiles').select('*').eq('id', user.id).single()
+      .then(({ data }) => { if (data) setProfile(data); });
   }, [user]);
 
   // Load messages when active conversation changes
@@ -207,7 +227,8 @@ const App = () => {
         <Composer onSend={ask} disabled={isStreaming} />
       </main>
       <Tweaks state={state} setState={setState} />
-      <AccountLightbox open={accountOpen} onClose={() => setAccountOpen(false)} user={user} />
+      <AccountLightbox open={accountOpen} onClose={() => setAccountOpen(false)} user={user} profile={profile} onUpgrade={() => setPricingOpen(true)} />
+      <PricingLightbox open={pricingOpen} onClose={() => setPricingOpen(false)} user={user} profile={profile} onNeedAuth={() => { setPricingOpen(false); setAccountOpen(true); }} />
     </div>
   );
 };

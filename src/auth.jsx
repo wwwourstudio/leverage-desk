@@ -17,7 +17,7 @@ const label = {
   color: 'var(--fg-faint)', textTransform: 'uppercase', display: 'block', marginBottom: 6,
 };
 
-export const AccountLightbox = ({ open, onClose, user }) => {
+export const AccountLightbox = ({ open, onClose, user, profile, onUpgrade }) => {
   const defaultTab = user ? 'account' : 'login';
   const [tab, setTab] = React.useState(defaultTab);
   const [name, setName] = React.useState('');
@@ -151,8 +151,18 @@ export const AccountLightbox = ({ open, onClose, user }) => {
 
               <div style={{ padding: '12px 14px', background: 'var(--bg-deep)', border: '1px solid var(--line-soft)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--fg-mute)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Plan</span>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Pro · $149 / mo</span>
+                {profile?.subscription_status === 'active'
+                  ? <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Pro · Active</span>
+                  : <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--fg-faint)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Free</span>
+                }
               </div>
+
+              {profile?.subscription_status !== 'active' && (
+                <button onClick={() => { onClose(); onUpgrade?.(); }}
+                  style={{ ...btn, marginTop: 0 }}>
+                  Upgrade to Pro →
+                </button>
+              )}
 
               <div style={{ height: 1, background: 'var(--line-soft)' }} />
 
