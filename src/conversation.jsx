@@ -100,7 +100,7 @@ export const StreamingText = ({ content, done }) => {
           ))
       }
       {done && <AnswerFooter />}
-      {done && <VerificationStrip />}
+      {done && <VerificationStrip responseText={content} />}
     </div>
   );
 };
