@@ -188,12 +188,13 @@ const App = () => {
       }
     } finally {
       setIsStreaming(false);
-      // Persist completed assistant message
+      // Persist completed assistant message — cap at 9 500 chars to stay under DB quota
       if (convId) {
         setMessages(prev => {
           const last = prev[prev.length - 1];
           if (last?.role === 'assistant' && last.content) {
-            supabase.from('messages').insert({ conversation_id: convId, role: 'assistant', content: last.content });
+            const stored = last.content.length > 9500 ? last.content.slice(0, 9500) + '…' : last.content;
+            supabase.from('messages').insert({ conversation_id: convId, role: 'assistant', content: stored });
             supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
           }
           return prev;
