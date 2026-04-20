@@ -7,6 +7,8 @@ import { Sidebar } from './sidebar.jsx';
 import { Welcome } from './welcome.jsx';
 import { StreamingAnswer, FollowupChips, UserTurn, AssistantTurn, Composer, StreamingText } from './conversation.jsx';
 import { Tweaks } from './tweaks.jsx';
+import { supabase } from './supabase.js';
+import { AccountLightbox } from './auth.jsx';
 
 const TWEAK_DEFAULTS = {
   theme: 'dark', density: 'default', layout: 'classic', accent: 'lime', stream: 'auto', view: 'welcome'
@@ -21,17 +23,22 @@ const ACCENT_MAP = {
 
 const App = () => {
   const [state, setState] = React.useState(TWEAK_DEFAULTS);
-  const [activeChat, setActiveChat] = React.useState('c1');
   const [view, setView] = React.useState(TWEAK_DEFAULTS.view);
   const [messages, setMessages] = React.useState([]);
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [liveData, setLiveData] = React.useState(null);
+  const [user, setUser] = React.useState(null);
+  const [conversations, setConversations] = React.useState([]);
+  const [activeConvId, setActiveConvId] = React.useState(null);
+  const [accountOpen, setAccountOpen] = React.useState(false);
   const scrollRef = React.useRef(null);
 
+  // Fetch live market data once on mount
   React.useEffect(() => {
     fetch('/api/data').then(r => r.ok ? r.json() : null).then(d => { if (d) setLiveData(d); }).catch(() => {});
   }, []);
 
+  // Apply theme/accent CSS vars
   React.useEffect(() => {
     const r = document.documentElement;
     r.dataset.theme = state.theme;
@@ -44,12 +51,74 @@ const App = () => {
 
   React.useEffect(() => setView(state.view), [state.view]);
 
+  // Auth state listener
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load conversations when user logs in/out
+  React.useEffect(() => {
+    if (!user) { setConversations([]); setActiveConvId(null); setMessages([]); return; }
+    supabase.from('conversations')
+      .select('id, title, pinned, updated_at')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .then(({ data }) => { if (data) setConversations(data); });
+  }, [user]);
+
+  // Load messages when active conversation changes
+  React.useEffect(() => {
+    if (!activeConvId) { setMessages([]); return; }
+    supabase.from('messages')
+      .select('role, content')
+      .eq('conversation_id', activeConvId)
+      .order('created_at')
+      .then(({ data }) => { if (data) setMessages(data); });
+  }, [activeConvId]);
+
+  const selectConversation = (id) => {
+    // Only load real conversations (logged-in users); ignore mock data clicks
+    if (user) { setActiveConvId(id); setView('chat'); }
+  };
+
+  const newConversation = () => {
+    setActiveConvId(null);
+    setMessages([]);
+    setView('welcome');
+  };
+
   const ask = async (q) => {
     setView('chat');
+    let convId = activeConvId;
+
+    // Create a new DB conversation on first message (logged-in users only)
+    if (!convId && user) {
+      const title = q.slice(0, 60);
+      const { data } = await supabase.from('conversations')
+        .insert({ user_id: user.id, title })
+        .select('id').single();
+      if (data) {
+        convId = data.id;
+        setActiveConvId(convId);
+        setConversations(prev => [{ id: convId, title, pinned: false, updated_at: new Date().toISOString() }, ...prev]);
+      }
+    }
+
     const newMessages = [...messages, { role: 'user', content: q }];
     setMessages([...newMessages, { role: 'assistant', content: '' }]);
     setIsStreaming(true);
     setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }), 40);
+
+    // Persist user message
+    if (convId) {
+      supabase.from('messages').insert({ conversation_id: convId, role: 'user', content: q });
+    }
 
     try {
       const res = await fetch('/api/chat', {
@@ -99,12 +168,30 @@ const App = () => {
       }
     } finally {
       setIsStreaming(false);
+      // Persist completed assistant message
+      if (convId) {
+        setMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'assistant' && last.content) {
+            supabase.from('messages').insert({ conversation_id: convId, role: 'assistant', content: last.content });
+            supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+          }
+          return prev;
+        });
+      }
     }
   };
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
-      <Sidebar chats={DATA.CHAT_HISTORY} activeId={activeChat} onSelect={setActiveChat} onNew={() => setView('welcome')} />
+      <Sidebar
+        chats={user ? conversations : DATA.CHAT_HISTORY}
+        activeId={activeConvId}
+        onSelect={selectConversation}
+        onNew={newConversation}
+        user={user}
+        onOpenAccount={() => setAccountOpen(true)}
+      />
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <TopBar view={view} onHome={() => setView('welcome')} />
         <Ticker items={DATA.TICKER} />
@@ -120,6 +207,7 @@ const App = () => {
         <Composer onSend={ask} disabled={isStreaming} />
       </main>
       <Tweaks state={state} setState={setState} />
+      <AccountLightbox open={accountOpen} onClose={() => setAccountOpen(false)} user={user} />
     </div>
   );
 };
