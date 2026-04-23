@@ -37,6 +37,7 @@ export const AccountLightbox = ({ open, onClose, user, profile, onUpgrade }) => 
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (!supabase) { setError('Auth not configured.'); return; }
     setLoading(true); setError('');
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
@@ -46,6 +47,7 @@ export const AccountLightbox = ({ open, onClose, user, profile, onUpgrade }) => 
 
   const handleSignup = async (e) => {
     e.preventDefault();
+    if (!supabase) { setError('Auth not configured.'); return; }
     setLoading(true); setError('');
     const { error: err } = await supabase.auth.signUp({
       email, password, options: { data: { name } },
@@ -56,7 +58,7 @@ export const AccountLightbox = ({ open, onClose, user, profile, onUpgrade }) => 
   };
 
   const handleSignout = async () => {
-    await supabase.auth.signOut();
+    if (supabase) await supabase.auth.signOut();
     onClose();
   };
 
