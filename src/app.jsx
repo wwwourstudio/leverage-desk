@@ -56,6 +56,7 @@ const App = () => {
 
   // Auth state listener
   React.useEffect(() => {
+    if (!supabase) return;
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
     });
@@ -67,10 +68,10 @@ const App = () => {
 
   // Detect Stripe checkout return and reload profile
   React.useEffect(() => {
+    if (!supabase) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get('checkout') === 'success') {
       window.history.replaceState({}, '', window.location.pathname);
-      // Wait briefly for webhook to update Supabase, then reload profile
       setTimeout(() => {
         supabase.auth.getUser().then(({ data: { user: u } }) => {
           if (u) supabase.from('profiles').select('*').eq('id', u.id).single()
@@ -82,7 +83,7 @@ const App = () => {
 
   // Load conversations + profile when user logs in/out
   React.useEffect(() => {
-    if (!user) { setConversations([]); setActiveConvId(null); setMessages([]); setProfile(null); return; }
+    if (!user || !supabase) { setConversations([]); setActiveConvId(null); setMessages([]); setProfile(null); return; }
     supabase.from('conversations')
       .select('id, title, pinned, updated_at')
       .eq('user_id', user.id)
@@ -94,7 +95,7 @@ const App = () => {
 
   // Load messages when active conversation changes
   React.useEffect(() => {
-    if (!activeConvId) { setMessages([]); return; }
+    if (!activeConvId || !supabase) { setMessages([]); return; }
     supabase.from('messages')
       .select('role, content')
       .eq('conversation_id', activeConvId)
@@ -118,7 +119,7 @@ const App = () => {
     let convId = activeConvId;
 
     // Create a new DB conversation on first message (logged-in users only)
-    if (!convId && user) {
+    if (!convId && user && supabase) {
       const title = q.slice(0, 60);
       const { data } = await supabase.from('conversations')
         .insert({ user_id: user.id, title })
@@ -136,7 +137,7 @@ const App = () => {
     setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }), 40);
 
     // Persist user message
-    if (convId) {
+    if (convId && supabase) {
       supabase.from('messages').insert({ conversation_id: convId, role: 'user', content: q });
     }
 
@@ -189,7 +190,7 @@ const App = () => {
     } finally {
       setIsStreaming(false);
       // Persist completed assistant message — cap at 9 500 chars to stay under DB quota
-      if (convId) {
+      if (convId && supabase) {
         setMessages(prev => {
           const last = prev[prev.length - 1];
           if (last?.role === 'assistant' && last.content) {
